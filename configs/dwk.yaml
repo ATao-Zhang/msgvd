@@ -1,0 +1,72 @@
+seed: 7
+num_workers: 8
+log_offline: false
+
+# preprocess keys
+joern_path: "joern/joern-parse"
+split_token: false
+
+# data keys
+data_folder: "data"
+save_every_epoch: 1
+val_every_epoch: 1
+log_every_epoch: 10
+progress_bar_refresh_rate: 1
+
+dataset:
+  name: SARD
+  token:
+    max_parts: 16
+    is_wrapped: false
+    is_splitted: false
+    vocabulary_size: 190000
+
+# -------------------------------------------------
+# GNN 主干：GGRN + DevignConv
+# -------------------------------------------------
+gnn:
+  name: enhanced_ggrn
+  w2v_path: "${data_folder}/${dataset.name}/w2v.wv"
+  embed_size: 256          # ← 请确保与 w2v 向量维度一致（若你的 w2v 是 128，就改为 128）
+  hidden_size: 256         # ← 编码器输出维度（后续分类头的输入维度）
+  dropout: 0.2             # ← 融合层/MLP 用的 dropout
+  n_gru: 3                 # ← GGRN 迭代步数
+  num_relations: 1         # ← 若有多关系边(如 AST/CFG/DFG)，改为实际关系数
+  rnn:
+    hidden_size: 256
+    num_layers: 1
+    use_bi: true
+    drop_out: 0.5
+    activation: relu
+
+# --------------------------------
+# 分类头
+# --------------------------------
+classifier:
+  hidden_size: 256         # ← 建议与 gnn.hidden_size 保持一致
+  n_hidden_layers: 1
+  n_classes: 2
+  drop_out: 0.2
+
+# --------------------------
+# 训练超参
+# --------------------------
+hyper_parameters:
+  vector_length: 128
+  n_epochs: 50
+  patience: 10
+  batch_size: 64
+  test_batch_size: 64
+  reload_dataloader: true
+  clip_norm: 5
+  val_every_step: 1.0
+  log_every_n_steps: 50
+  progress_bar_refresh_rate: 1
+  resume_from_checkpoint: null
+  shuffle_data: true
+
+  optimizer: "Adam"
+  nesterov: true
+  learning_rate: 0.002
+  weight_decay: 0
+  decay_gamma: 0.95
