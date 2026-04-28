@@ -7,4 +7,5 @@ ts_logger/
 
 *.pyc
 .*/
-*.html
+*.htmldwk_preprocess.zip
+joern-cli.zip
