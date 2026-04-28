@@ -21,38 +21,34 @@ dataset:
     is_splitted: false
     vocabulary_size: 190000
 
-# -------------------------------------------------
-# GNN 主干：GGRN + DevignConv
-# -------------------------------------------------
 gnn:
-  name: enhanced_ggrn
+  # gcn, ggnn
+  name: "gcn"
   w2v_path: "${data_folder}/${dataset.name}/w2v.wv"
-  embed_size: 256          # ← 请确保与 w2v 向量维度一致（若你的 w2v 是 128，就改为 128）
-  hidden_size: 256         # ← 编码器输出维度（后续分类头的输入维度）
-  dropout: 0.2             # ← 融合层/MLP 用的 dropout
-  n_gru: 3                 # ← GGRN 迭代步数
-  num_relations: 1         # ← 若有多关系边(如 AST/CFG/DFG)，改为实际关系数
+  embed_size: 256
+  hidden_size: 256
+  pooling_ratio: 0.8
+  drop_out: 0.5
+  n_hidden_layers: 3
+  n_head: 3
+  n_gru: 3
+  edge_sample_ratio: 0.8
   rnn:
     hidden_size: 256
     num_layers: 1
-    use_bi: true
     drop_out: 0.5
+    use_bi: true
     activation: relu
 
-# --------------------------------
-# 分类头
-# --------------------------------
 classifier:
-  hidden_size: 256         # ← 建议与 gnn.hidden_size 保持一致
-  n_hidden_layers: 1
+  hidden_size: 512
+  n_hidden_layers: 2
   n_classes: 2
-  drop_out: 0.2
+  drop_out: 0.5
 
-# --------------------------
-# 训练超参
-# --------------------------
 hyper_parameters:
   vector_length: 128
+
   n_epochs: 50
   patience: 10
   batch_size: 64
