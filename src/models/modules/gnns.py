@@ -38,12 +38,17 @@ class GraphConvEncoder(torch.nn.Module):
 
         self.attpool = GlobalAttention(torch.nn.Linear(config.hidden_size, 1))
 
-    def forward(self, batched_graph: Batch):
-        # [n nodes; rnn hidden]
+    def encode_nodes(self, batched_graph: Batch):
+        """Return pre-pooling node embeddings for source-line localization."""
         node_embedding = self.__st_embedding(batched_graph.x)
         edge_index = batched_graph.edge_index
         batch = batched_graph.batch
         node_embedding = F.relu(self.input_GCL(node_embedding, edge_index))
+        return node_embedding, edge_index, batch
+
+    def forward(self, batched_graph: Batch):
+        # [n nodes; rnn hidden]
+        node_embedding, edge_index, batch = self.encode_nodes(batched_graph)
         node_embedding, edge_index, _, batch, _, _ = self.input_GPL(node_embedding, edge_index, None,
                                                                     batch)
         # [n_XFG; XFG hidden dim]
@@ -55,6 +60,18 @@ class GraphConvEncoder(torch.nn.Module):
             out += self.attpool(node_embedding, batch)
         # [n_XFG; XFG hidden dim]
         return out
+
+    def forward_with_evidence(self, batched_graph: Batch):
+        """Return graph embeddings plus node embeddings/scores for EP-LocNet."""
+        node_embedding, edge_index, batch = self.encode_nodes(batched_graph)
+        node_score = self.attpool.gate_nn(node_embedding).squeeze(-1)
+        graph_embedding = self.forward(batched_graph)
+        return {
+            "graph_embedding": graph_embedding,
+            "node_embeddings": node_embedding,
+            "node_scores": node_score,
+            "node_batch": batch,
+        }
 
 
 class GatedGraphConvEncoder(torch.nn.Module):
@@ -87,12 +104,17 @@ class GatedGraphConvEncoder(torch.nn.Module):
                             ratio=config.pooling_ratio))
         self.attpool = GlobalAttention(torch.nn.Linear(config.hidden_size, 1))
 
-    def forward(self, batched_graph: Batch):
-        # [n nodes; rnn hidden]
+    def encode_nodes(self, batched_graph: Batch):
+        """Return pre-pooling node embeddings for source-line localization."""
         node_embedding = self.__st_embedding(batched_graph.x)
         edge_index = batched_graph.edge_index
         batch = batched_graph.batch
         node_embedding = F.relu(self.input_GCL(node_embedding, edge_index))
+        return node_embedding, edge_index, batch
+
+    def forward(self, batched_graph: Batch):
+        # [n nodes; rnn hidden]
+        node_embedding, edge_index, batch = self.encode_nodes(batched_graph)
         node_embedding, edge_index, _, batch, _, _ = self.input_GPL(node_embedding, edge_index, None,
                                                                     batch)
         # [n_XFG; XFG hidden dim]
@@ -104,3 +126,15 @@ class GatedGraphConvEncoder(torch.nn.Module):
             out += self.attpool(node_embedding, batch)
         # [n_XFG; XFG hidden dim]
         return out
+
+    def forward_with_evidence(self, batched_graph: Batch):
+        """Return graph embeddings plus node embeddings/scores for EP-LocNet."""
+        node_embedding, edge_index, batch = self.encode_nodes(batched_graph)
+        node_score = self.attpool.gate_nn(node_embedding).squeeze(-1)
+        graph_embedding = self.forward(batched_graph)
+        return {
+            "graph_embedding": graph_embedding,
+            "node_embeddings": node_embedding,
+            "node_scores": node_score,
+            "node_batch": batch,
+        }

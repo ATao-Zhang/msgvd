@@ -75,3 +75,57 @@ class Statistic:
         for stat in stats:
             union_statistic.update(stat)
         return union_statistic
+
+
+@dataclass
+class LocalizationStatistic:
+    """Top-k statement localization metrics for EP-LocNet."""
+
+    top1_hit: int = 0
+    top3_hit: int = 0
+    top5_hit: int = 0
+    reciprocal_rank_sum: float = 0.0
+    first_rank_sum: float = 0.0
+    n_samples: int = 0
+
+    def update_from_ranked_lines(self, ranked_lines: List[int], target_lines: List[int]):
+        if not target_lines:
+            return
+        target_set = set(target_lines)
+        self.n_samples += 1
+        hit_ranks = [idx + 1 for idx, line in enumerate(ranked_lines) if line in target_set]
+        first_rank = min(hit_ranks) if hit_ranks else len(ranked_lines) + 1
+        self.top1_hit += int(first_rank <= 1)
+        self.top3_hit += int(first_rank <= 3)
+        self.top5_hit += int(first_rank <= 5)
+        self.reciprocal_rank_sum += 1.0 / first_rank
+        self.first_rank_sum += float(first_rank)
+
+    def update(self, other: "LocalizationStatistic"):
+        self.top1_hit += other.top1_hit
+        self.top3_hit += other.top3_hit
+        self.top5_hit += other.top5_hit
+        self.reciprocal_rank_sum += other.reciprocal_rank_sum
+        self.first_rank_sum += other.first_rank_sum
+        self.n_samples += other.n_samples
+
+    def calculate_metrics(self, group: Optional[str] = None) -> Dict[str, float]:
+        denom = max(1, self.n_samples)
+        metrics_dict = {
+            "top1_hit": self.top1_hit / denom,
+            "top3_hit": self.top3_hit / denom,
+            "top5_hit": self.top5_hit / denom,
+            "mrr": self.reciprocal_rank_sum / denom,
+            "mfr": self.first_rank_sum / denom,
+        }
+        if group is not None:
+            for key in list(metrics_dict.keys()):
+                metrics_dict[f"{group}_{key}"] = metrics_dict.pop(key)
+        return metrics_dict
+
+    @staticmethod
+    def union_statistics(stats: List["LocalizationStatistic"]) -> "LocalizationStatistic":
+        union_statistic = LocalizationStatistic()
+        for stat in stats:
+            union_statistic.update(stat)
+        return union_statistic
