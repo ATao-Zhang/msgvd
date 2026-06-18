@@ -37,6 +37,9 @@ def parse_args() -> argparse.Namespace:
                         help="Require exact checkpoint/model key match after prefix adaptation. Default: enabled.")
     parser.add_argument("--no_strict_checkpoint", dest="strict_checkpoint", action="store_false",
                         help="Allow relaxed loading after prefix adaptation if loaded_ratio >= 0.95.")
+    parser.add_argument("--label_strategy", default="xfg_stem",
+                        choices=("xfg_stem", "keyword_comment", "hybrid"),
+                        help="Line-label extraction strategy. Default: xfg_stem.")
     parser.add_argument("--prefer-explicit-labels", action="store_true",
                         help="Prefer graph metadata line labels before weak SARD/Juliet extraction.")
     return parser.parse_args()
@@ -289,7 +292,8 @@ def line_rankings(node_scores, line_ids, code_by_line: Dict[int, str]) -> List[D
     ]
 
 
-def explain_one(model, config, vocab, xfg_path: str, device, prefer_explicit_labels: bool) -> Dict:
+def explain_one(model, config, vocab, xfg_path: str, device, prefer_explicit_labels: bool,
+                label_strategy: str) -> Dict:
     import networkx as nx
     from torch_geometric.data import Batch
 
@@ -301,6 +305,9 @@ def explain_one(model, config, vocab, xfg_path: str, device, prefer_explicit_lab
     code_by_line = source_line_map(graph_nx, source_lines)
     true_lines, label_source = extract_vulnerable_lines(
         graph_nx,
+        xfg_path=xfg_path,
+        label=label,
+        strategy=label_strategy,
         source_lines=source_lines,
         prefer_explicit=prefer_explicit_labels,
     )
@@ -355,7 +362,15 @@ def main():
     records = []
     report = LabelExtractionReport()
     for index, xfg_path in enumerate(paths):
-        record = explain_one(model, config, vocab, xfg_path, device, args.prefer_explicit_labels)
+        record = explain_one(
+            model,
+            config,
+            vocab,
+            xfg_path,
+            device,
+            args.prefer_explicit_labels,
+            args.label_strategy,
+        )
         records.append(record)
         report.update(
             sample_id=record["sample_id"],
@@ -370,8 +385,14 @@ def main():
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(records, indent=2), encoding="utf-8")
     write_metrics_csv(metrics_path_for(output_path, args.limit), metrics)
+    report_dict = report.to_dict()
+    if report_dict["negative_with_line_labels_should_be_zero"] > 0:
+        print(
+            "[warning] negative_with_line_labels_should_be_zero="
+            f"{report_dict['negative_with_line_labels_should_be_zero']}"
+        )
     report_path_for(output_path, args.limit).write_text(
-        json.dumps(report.to_dict(), indent=2),
+        json.dumps(report_dict, indent=2),
         encoding="utf-8",
     )
     print(json.dumps(metrics, indent=2))
