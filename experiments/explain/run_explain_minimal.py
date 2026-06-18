@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from experiments.explain.counterfactual_scorer import compute_counterfactual_scores  # noqa: E402
 from experiments.explain.label_extractor import (  # noqa: E402
     LabelExtractionReport,
     extract_vulnerable_lines,
@@ -42,10 +43,22 @@ def parse_args() -> argparse.Namespace:
                         choices=("xfg_stem", "keyword_comment", "hybrid"),
                         help="Line-label extraction strategy. Default: xfg_stem.")
     parser.add_argument("--score_mode", default="attention",
-                        choices=("attention", "semantic", "attention_semantic"),
+                        choices=(
+                            "attention",
+                            "semantic",
+                            "attention_semantic",
+                            "counterfactual",
+                            "attention_semantic_cf",
+                        ),
                         help="Line ranking score mode. Default keeps the attention-only baseline.")
     parser.add_argument("--semantic_weight", type=float, default=0.3,
                         help="Semantic score weight for attention_semantic mode. Default: 0.3.")
+    parser.add_argument("--cf_top_k", type=int, default=10,
+                        help="Only compute counterfactual scores for the current top-K candidate lines. Default: 10.")
+    parser.add_argument("--attention_weight", type=float, default=0.1,
+                        help="Attention weight for attention_semantic_cf mode. Default: 0.1.")
+    parser.add_argument("--cf_weight", type=float, default=0.2,
+                        help="Counterfactual weight for attention_semantic_cf mode. Default: 0.2.")
     parser.add_argument("--prefer-explicit-labels", action="store_true",
                         help="Prefer graph metadata line labels before weak SARD/Juliet extraction.")
     return parser.parse_args()
@@ -282,8 +295,30 @@ def _evidence_scores(model, graph_batch) -> Tuple[object, int, Dict[str, object]
     return node_scores, pred_label, {"logits": logits.detach().cpu(), "prob": prob.detach().cpu(), **evidence}
 
 
+def _normalize_weight_triplet(attention_weight: float, semantic_weight: float, cf_weight: float) -> Tuple[float, float, float]:
+    weights = [max(0.0, float(attention_weight)), max(0.0, float(semantic_weight)), max(0.0, float(cf_weight))]
+    total = sum(weights)
+    if total <= 0:
+        return 0.1, 0.7, 0.2
+    return weights[0] / total, weights[1] / total, weights[2] / total
+
+
+def _combine_line_score(attn_score: float, sem_score: float, cf_score: float, score_mode: str,
+                        semantic_weight: float, attention_weight: float, cf_weight: float) -> float:
+    if score_mode in ("attention", "semantic", "attention_semantic"):
+        return combine_scores(attn_score, sem_score, score_mode, semantic_weight)
+    if score_mode == "counterfactual":
+        return cf_score
+    if score_mode == "attention_semantic_cf":
+        attn_w, sem_w, cf_w = _normalize_weight_triplet(attention_weight, semantic_weight, cf_weight)
+        return attn_w * attn_score + sem_w * sem_score + cf_w * cf_score
+    raise ValueError(f"Unsupported score_mode: {score_mode}")
+
+
 def line_rankings(node_scores, line_ids, code_by_line: Dict[int, str],
-                  score_mode: str = "attention", semantic_weight: float = 0.3) -> List[Dict]:
+                  score_mode: str = "attention", semantic_weight: float = 0.3,
+                  cf_scores: Dict[int, Dict] = None, attention_weight: float = 0.1,
+                  cf_weight: float = 0.2) -> List[Dict]:
     line_scores: Dict[int, float] = {}
     for score, line_no in zip(node_scores.tolist(), line_ids.detach().cpu().tolist()):
         line_no = int(line_no)
@@ -294,30 +329,57 @@ def line_rankings(node_scores, line_ids, code_by_line: Dict[int, str],
     attention_norm = normalize_scores(attention_raw)
     semantic_infos = [semantic_risk_score(code_by_line.get(int(line_no), "")) for line_no, _ in line_items]
     semantic_norm = normalize_scores([float(info["semantic_score"]) for info in semantic_infos])
+    cf_scores = cf_scores or {}
+    cf_raw = [float(cf_scores.get(int(line_no), {}).get("cf_score", 0.0)) for line_no, _ in line_items]
+    cf_norm = normalize_scores(cf_raw)
 
     rows = []
-    for (line_no, raw_attention), attn_score, sem_score, sem_info in zip(
+    for (line_no, raw_attention), attn_score, sem_score, sem_info, cf_score in zip(
         line_items,
         attention_norm,
         semantic_norm,
         semantic_infos,
+        cf_norm,
     ):
-        final_score = combine_scores(attn_score, sem_score, score_mode, semantic_weight)
+        cf_info = cf_scores.get(int(line_no), {})
+        final_score = _combine_line_score(
+            attn_score,
+            sem_score,
+            cf_score,
+            score_mode,
+            semantic_weight,
+            attention_weight,
+            cf_weight,
+        )
         rows.append({
             "line": int(line_no),
             "score": float(final_score),
             "attention_score": float(attn_score),
             "semantic_score": float(sem_score),
+            "cf_score": float(cf_score),
             "final_score": float(final_score),
             "semantic_tags": sem_info["semantic_tags"],
             "code": code_by_line.get(int(line_no), ""),
             "raw_attention_score": float(raw_attention),
+            "masked_prob": cf_info.get("masked_prob"),
+            "prob_drop": float(cf_info.get("prob_drop", 0.0)),
         })
     return sorted(rows, key=lambda item: (-item["final_score"], item["line"]))
 
 
+def _needs_counterfactual(score_mode: str) -> bool:
+    return score_mode in ("counterfactual", "attention_semantic_cf")
+
+
+def _candidate_mode_for_counterfactual(score_mode: str) -> str:
+    if score_mode in ("counterfactual", "attention_semantic_cf"):
+        return "attention_semantic"
+    return score_mode
+
+
 def explain_one(model, config, vocab, xfg_path: str, device, prefer_explicit_labels: bool,
-                label_strategy: str, score_mode: str, semantic_weight: float) -> Dict:
+                label_strategy: str, score_mode: str, semantic_weight: float,
+                cf_top_k: int, attention_weight: float, cf_weight: float) -> Dict:
     import networkx as nx
     from torch_geometric.data import Batch
 
@@ -343,12 +405,38 @@ def explain_one(model, config, vocab, xfg_path: str, device, prefer_explicit_lab
     with torch.no_grad():
         node_scores, pred_label, evidence = _evidence_scores(model, graph_batch)
 
+    cf_scores = {}
+    cf_warnings: List[str] = []
+    if _needs_counterfactual(score_mode):
+        preliminary = line_rankings(
+            node_scores,
+            data.line_ids,
+            code_by_line,
+            score_mode=_candidate_mode_for_counterfactual(score_mode),
+            semantic_weight=semantic_weight,
+        )
+        candidate_lines = [item["line"] for item in preliminary[:max(0, int(cf_top_k))]]
+        cf_scores, cf_warnings = compute_counterfactual_scores(
+            model=model,
+            data=data,
+            candidate_lines=candidate_lines,
+            original_prob=float(evidence["prob"]),
+            device=device,
+            pad_id=vocab.get_pad_id(),
+            cf_top_k=cf_top_k,
+        )
+        for warning in cf_warnings[:3]:
+            print(f"[warning] counterfactual fallback for {xfg_path}: {warning}")
+
     ranked = line_rankings(
         node_scores,
         data.line_ids,
         code_by_line,
         score_mode=score_mode,
         semantic_weight=semantic_weight,
+        cf_scores=cf_scores,
+        attention_weight=attention_weight,
+        cf_weight=cf_weight,
     )
     return {
         "sample_id": xfg_path,
@@ -402,6 +490,9 @@ def main():
             args.label_strategy,
             args.score_mode,
             args.semantic_weight,
+            args.cf_top_k,
+            args.attention_weight,
+            args.cf_weight,
         )
         records.append(record)
         report.update(
