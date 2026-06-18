@@ -130,6 +130,16 @@ counterfactual, GNNExplainer, or PGExplainer scores.
 
 ## Score Modes
 
+Available `--score_mode` values:
+
+```text
+attention
+semantic
+attention_semantic
+counterfactual
+attention_semantic_cf
+```
+
 The default remains the attention-only baseline:
 
 ```bash
@@ -170,12 +180,52 @@ python experiments/explain/run_explain_minimal.py \
   --semantic_weight 0.3
 ```
 
-`attention_score` and `semantic_score` are normalized to `[0, 1]` per sample.
-For `attention_semantic`, the final score is:
+Counterfactual-only ranking. Run `--limit 20` first, then `--limit 100`, before
+running the full split:
+
+```bash
+python experiments/explain/run_explain_minimal.py \
+  --data_json data/SARD/test.json \
+  --checkpoint ts_logger/DeepWuKong/SARD/version_4/checkpoints/epoch=32-step=10922-val_loss=0.1582.ckpt \
+  --w2v data/SARD/w2v.wv \
+  --output results/explain/counterfactual_only_sard_full.json \
+  --limit 2648 \
+  --label_strategy xfg_stem \
+  --score_mode counterfactual \
+  --cf_top_k 10
+```
+
+Attention plus semantic plus counterfactual ranking:
+
+```bash
+python experiments/explain/run_explain_minimal.py \
+  --data_json data/SARD/test.json \
+  --checkpoint ts_logger/DeepWuKong/SARD/version_4/checkpoints/epoch=32-step=10922-val_loss=0.1582.ckpt \
+  --w2v data/SARD/w2v.wv \
+  --output results/explain/attention_semantic_cf_sard_full.json \
+  --limit 2648 \
+  --label_strategy xfg_stem \
+  --score_mode attention_semantic_cf \
+  --attention_weight 0.1 \
+  --semantic_weight 0.7 \
+  --cf_weight 0.2 \
+  --cf_top_k 10
+```
+
+`attention_score`, `semantic_score`, and `cf_score` are normalized to `[0, 1]`
+per sample. For `attention_semantic`, the final score is:
 
 ```python
 final_score = (1 - semantic_weight) * attention_score_norm + semantic_weight * semantic_score_norm
 ```
+
+For `attention_semantic_cf`, the three weights are normalized before fusion:
+
+```python
+final_score = attention_weight * attention_score_norm + semantic_weight * semantic_score_norm + cf_weight * cf_score_norm
+```
+
+## Semantic Risk Score
 
 Semantic Risk Score is a clipped `[0, 1]` rule-based score:
 
@@ -194,8 +244,38 @@ Semantic Risk Score is a clipped `[0, 1]` rule-based score:
 - arithmetic operators: `+0.2`
   `+`, `-`, `*`, `/`, `%`, `<<`, `>>`
 
-Each `top_lines` entry includes `attention_score`, `semantic_score`,
-`final_score`, and `semantic_tags`.
+## Counterfactual Score
+
+Counterfactual Score is a lightweight post-hoc perturbation score. It does not
+train a new model and does not change preprocessing.
+
+For each sample, the runner first builds an `attention_semantic` candidate order
+and only perturbs the first `--cf_top_k` lines. For a candidate line, all graph
+nodes whose `Data.line_ids` equal that source line are masked by replacing their
+`Data.x` token ids with the vocabulary PAD id. Optional `stmt_features` for the
+same nodes are zeroed. The model is then forwarded again:
+
+```text
+cf_score(line) = max(0, P_vul(original) - P_vul(mask_line))
+```
+
+If the graph does not expose `line_ids` or `x`, or if a candidate line has no
+matching node, the runner prints a warning and leaves that line with
+`cf_score = 0`, `masked_prob = null`, and `prob_drop = 0`. It does not invent
+counterfactual scores.
+
+Each `top_lines` entry includes:
+
+```text
+attention_score
+semantic_score
+cf_score
+final_score
+semantic_tags
+raw_attention_score
+masked_prob
+prob_drop
+```
 
 ## Line Labels
 
