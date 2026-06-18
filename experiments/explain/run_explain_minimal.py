@@ -5,11 +5,6 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-import networkx as nx
-import torch
-from omegaconf import OmegaConf
-from torch_geometric.data import Batch
-
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -22,15 +17,16 @@ from experiments.explain.label_extractor import (  # noqa: E402
     source_line_map,
 )
 from experiments.explain.localization_metrics import calculate_localization_metrics  # noqa: E402
-from src.datas.graphs import XFG  # noqa: E402
-from src.models.vd import DeepWuKong  # noqa: E402
-from src.vocabulary import Vocabulary  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Minimal MSAVD execution-path evidence localization.")
     parser.add_argument("--checkpoint", required=True, help="Path to a trained MSAVD checkpoint.")
     parser.add_argument("--config", default="configs/dwk.yaml", help="Path to the YAML config.")
+    parser.add_argument("--data_json", default=None,
+                        help="Explicit split JSON path, e.g. /server/path/to/SARD/test.json.")
+    parser.add_argument("--w2v", default=None,
+                        help="Explicit word2vec .wv path. Takes precedence over --vocab.")
     parser.add_argument("--split", default="test", choices=("train", "val", "test"), help="Dataset split.")
     parser.add_argument("--limit", type=int, default=20, help="Maximum number of samples to run.")
     parser.add_argument("--output", required=True, help="Output JSON path.")
@@ -40,23 +36,60 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_split_paths(config, split: str, limit: int) -> List[str]:
-    split_path = ROOT / config.data_folder / config.dataset.name / f"{split}.json"
+def _sample_path(sample) -> str:
+    if isinstance(sample, str):
+        return sample
+    if isinstance(sample, dict):
+        for key in ("xfg_path", "graph_path", "gpickle_path", "path", "file_path"):
+            if sample.get(key):
+                return str(sample[key])
+    raise ValueError(f"Unsupported sample entry in data_json: {sample!r}")
+
+
+def _resolve_sample_path(path_value: str, data_json_path: Path) -> str:
+    path = Path(path_value)
+    if path.is_absolute() and path.exists():
+        return str(path)
+    candidates = [
+        Path.cwd() / path_value,
+        data_json_path.parent / path_value,
+        ROOT / path_value,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return path_value
+
+
+def load_split_paths(config, split: str, limit: int, data_json: str = None) -> List[str]:
+    split_path = Path(data_json) if data_json else ROOT / config.data_folder / config.dataset.name / f"{split}.json"
     if not split_path.exists():
         raise FileNotFoundError(f"split file not found: {split_path}")
-    paths = json.loads(split_path.read_text(encoding="utf-8"))
+    samples = json.loads(split_path.read_text(encoding="utf-8"))
+    paths = [_resolve_sample_path(_sample_path(sample), split_path) for sample in samples]
     if limit is not None and limit > 0:
         paths = paths[:limit]
-    return [str(path) for path in paths]
+    return paths
 
 
-def load_vocabulary(config, vocab_path: str = None) -> Vocabulary:
+def load_vocabulary(config, w2v_path: str = None, vocab_path: str = None):
+    from src.vocabulary import Vocabulary
+
+    if w2v_path:
+        config.gnn.w2v_path = w2v_path
+        return Vocabulary.build_from_w2v(w2v_path)
     if vocab_path:
         return Vocabulary.load_vocabulary(vocab_path)
-    return Vocabulary.build_from_w2v(config.gnn.w2v_path)
+    raise ValueError("Either --w2v or --vocab must be provided for server execution.")
 
 
-def build_model(config, vocab: Vocabulary, checkpoint_path: str, device: torch.device) -> DeepWuKong:
+def build_model(config, vocab, checkpoint_path: str, device):
+    import torch
+
+    from src.models.vd import DeepWuKong
+
+    if not Path(checkpoint_path).exists():
+        raise FileNotFoundError(f"checkpoint not found: {checkpoint_path}")
     model = DeepWuKong(config, vocab, vocab.get_vocab_size(), vocab.get_pad_id())
     checkpoint = torch.load(checkpoint_path, map_location=device)
     state_dict = checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
@@ -74,7 +107,9 @@ def build_model(config, vocab: Vocabulary, checkpoint_path: str, device: torch.d
     return model
 
 
-def _normalize_scores(scores: torch.Tensor) -> torch.Tensor:
+def _normalize_scores(scores):
+    import torch
+
     scores = scores.detach().float().cpu()
     if scores.numel() == 0:
         return scores
@@ -85,7 +120,9 @@ def _normalize_scores(scores: torch.Tensor) -> torch.Tensor:
     return (scores - min_score) / (max_score - min_score)
 
 
-def _evidence_scores(model: DeepWuKong, graph_batch: Batch) -> Tuple[torch.Tensor, int, Dict[str, torch.Tensor]]:
+def _evidence_scores(model, graph_batch) -> Tuple[object, int, Dict[str, object]]:
+    import torch
+
     if hasattr(model, "forward_with_evidence"):
         evidence = model.forward_with_evidence(graph_batch)
         logits = evidence["logits"]
@@ -114,7 +151,7 @@ def _evidence_scores(model: DeepWuKong, graph_batch: Batch) -> Tuple[torch.Tenso
     return node_scores, pred_label, {"logits": logits.detach().cpu(), "prob": prob.detach().cpu(), **evidence}
 
 
-def line_rankings(node_scores: torch.Tensor, line_ids: torch.Tensor, code_by_line: Dict[int, str]) -> List[Dict]:
+def line_rankings(node_scores, line_ids, code_by_line: Dict[int, str]) -> List[Dict]:
     line_scores: Dict[int, float] = {}
     for score, line_no in zip(node_scores.tolist(), line_ids.detach().cpu().tolist()):
         line_no = int(line_no)
@@ -130,8 +167,12 @@ def line_rankings(node_scores: torch.Tensor, line_ids: torch.Tensor, code_by_lin
     ]
 
 
-def explain_one(model: DeepWuKong, config, vocab: Vocabulary, xfg_path: str, device: torch.device,
-                prefer_explicit_labels: bool) -> Dict:
+def explain_one(model, config, vocab, xfg_path: str, device, prefer_explicit_labels: bool) -> Dict:
+    import networkx as nx
+    from torch_geometric.data import Batch
+
+    from src.datas.graphs import XFG
+
     graph_nx = nx.read_gpickle(xfg_path)
     label = int(graph_nx.graph["label"])
     source_lines = read_source_lines(graph_file_path(graph_nx))
@@ -180,10 +221,14 @@ def write_metrics_csv(metrics_path: Path, metrics: Dict[str, float]):
 
 def main():
     args = parse_args()
+
+    import torch
+    from omegaconf import OmegaConf
+
     config = OmegaConf.load(args.config)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    paths = load_split_paths(config, args.split, args.limit)
-    vocab = load_vocabulary(config, args.vocab)
+    paths = load_split_paths(config, args.split, args.limit, args.data_json)
+    vocab = load_vocabulary(config, args.w2v, args.vocab)
     model = build_model(config, vocab, args.checkpoint, device)
 
     records = []
