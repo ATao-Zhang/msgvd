@@ -19,10 +19,11 @@ experiment:
 
 ```bash
 python experiments/explain/run_explain_minimal.py \
-  --checkpoint path/to/best_model.pt \
-  --split test \
-  --limit 20 \
-  --output results/explain/minimal_sard_20.json
+  --data_json /server/path/to/SARD/test.json \
+  --checkpoint /server/path/to/best.ckpt \
+  --w2v /server/path/to/w2v.wv \
+  --output results/explain/minimal_sard_20.json \
+  --limit 20
 ```
 
 Expected outputs:
@@ -35,6 +36,49 @@ results/explain/label_extraction_report_20.json
 
 After `--limit 20` succeeds, run `--limit 100`. Do not run the full split until
 the small runs have been checked.
+
+## Server Run
+
+Activate the same environment used for MSAVD training:
+
+```bash
+conda activate <env_name>
+```
+
+Check dependencies and path visibility first:
+
+```bash
+python experiments/explain/check_explain_env.py \
+  --data_json /server/path/to/SARD/test.json \
+  --w2v /server/path/to/w2v.wv \
+  --checkpoint /server/path/to/best.ckpt \
+  --output results/explain/env_check_report.json
+```
+
+Then run the minimal localization experiment:
+
+```bash
+python experiments/explain/run_explain_minimal.py \
+  --data_json /server/path/to/SARD/test.json \
+  --checkpoint /server/path/to/best.ckpt \
+  --w2v /server/path/to/w2v.wv \
+  --output results/explain/minimal_sard_20.json \
+  --limit 20
+```
+
+If the server does not have `w2v.wv`, pass a saved vocabulary instead:
+
+```bash
+python experiments/explain/run_explain_minimal.py \
+  --data_json /server/path/to/SARD/test.json \
+  --checkpoint /server/path/to/best.ckpt \
+  --vocab /server/path/to/vocab.pkl \
+  --output results/explain/minimal_sard_20.json \
+  --limit 20
+```
+
+Path arguments are explicit on purpose. The legacy `--split test` fallback is
+kept for local repo-style layouts, but server runs should pass `--data_json`.
 
 ## Evidence Scores
 
