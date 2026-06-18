@@ -19,6 +19,7 @@ from experiments.explain.label_extractor import (  # noqa: E402
     source_line_map,
 )
 from experiments.explain.localization_metrics import calculate_localization_metrics  # noqa: E402
+from experiments.explain.semantic_scorer import combine_scores, normalize_scores, semantic_risk_score  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -40,6 +41,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--label_strategy", default="xfg_stem",
                         choices=("xfg_stem", "keyword_comment", "hybrid"),
                         help="Line-label extraction strategy. Default: xfg_stem.")
+    parser.add_argument("--score_mode", default="attention",
+                        choices=("attention", "semantic", "attention_semantic"),
+                        help="Line ranking score mode. Default keeps the attention-only baseline.")
+    parser.add_argument("--semantic_weight", type=float, default=0.3,
+                        help="Semantic score weight for attention_semantic mode. Default: 0.3.")
     parser.add_argument("--prefer-explicit-labels", action="store_true",
                         help="Prefer graph metadata line labels before weak SARD/Juliet extraction.")
     return parser.parse_args()
@@ -276,24 +282,42 @@ def _evidence_scores(model, graph_batch) -> Tuple[object, int, Dict[str, object]
     return node_scores, pred_label, {"logits": logits.detach().cpu(), "prob": prob.detach().cpu(), **evidence}
 
 
-def line_rankings(node_scores, line_ids, code_by_line: Dict[int, str]) -> List[Dict]:
+def line_rankings(node_scores, line_ids, code_by_line: Dict[int, str],
+                  score_mode: str = "attention", semantic_weight: float = 0.3) -> List[Dict]:
     line_scores: Dict[int, float] = {}
     for score, line_no in zip(node_scores.tolist(), line_ids.detach().cpu().tolist()):
         line_no = int(line_no)
         line_scores[line_no] = max(line_scores.get(line_no, float("-inf")), float(score))
-    ranked = sorted(line_scores.items(), key=lambda item: (-item[1], item[0]))
-    return [
-        {
+
+    line_items = sorted(line_scores.items(), key=lambda item: item[0])
+    attention_raw = [float(score) for _, score in line_items]
+    attention_norm = normalize_scores(attention_raw)
+    semantic_infos = [semantic_risk_score(code_by_line.get(int(line_no), "")) for line_no, _ in line_items]
+    semantic_norm = normalize_scores([float(info["semantic_score"]) for info in semantic_infos])
+
+    rows = []
+    for (line_no, raw_attention), attn_score, sem_score, sem_info in zip(
+        line_items,
+        attention_norm,
+        semantic_norm,
+        semantic_infos,
+    ):
+        final_score = combine_scores(attn_score, sem_score, score_mode, semantic_weight)
+        rows.append({
             "line": int(line_no),
-            "score": float(score),
+            "score": float(final_score),
+            "attention_score": float(attn_score),
+            "semantic_score": float(sem_score),
+            "final_score": float(final_score),
+            "semantic_tags": sem_info["semantic_tags"],
             "code": code_by_line.get(int(line_no), ""),
-        }
-        for line_no, score in ranked
-    ]
+            "raw_attention_score": float(raw_attention),
+        })
+    return sorted(rows, key=lambda item: (-item["final_score"], item["line"]))
 
 
 def explain_one(model, config, vocab, xfg_path: str, device, prefer_explicit_labels: bool,
-                label_strategy: str) -> Dict:
+                label_strategy: str, score_mode: str, semantic_weight: float) -> Dict:
     import networkx as nx
     from torch_geometric.data import Batch
 
@@ -319,7 +343,13 @@ def explain_one(model, config, vocab, xfg_path: str, device, prefer_explicit_lab
     with torch.no_grad():
         node_scores, pred_label, evidence = _evidence_scores(model, graph_batch)
 
-    ranked = line_rankings(node_scores, data.line_ids, code_by_line)
+    ranked = line_rankings(
+        node_scores,
+        data.line_ids,
+        code_by_line,
+        score_mode=score_mode,
+        semantic_weight=semantic_weight,
+    )
     return {
         "sample_id": xfg_path,
         "label": label,
@@ -370,6 +400,8 @@ def main():
             device,
             args.prefer_explicit_labels,
             args.label_strategy,
+            args.score_mode,
+            args.semantic_weight,
         )
         records.append(record)
         report.update(
