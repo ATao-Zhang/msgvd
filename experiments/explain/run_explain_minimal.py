@@ -51,8 +51,8 @@ def parse_args() -> argparse.Namespace:
                             "attention_semantic_cf",
                         ),
                         help="Line ranking score mode. Default keeps the attention-only baseline.")
-    parser.add_argument("--semantic_weight", type=float, default=0.3,
-                        help="Semantic score weight for attention_semantic mode. Default: 0.3.")
+    parser.add_argument("--semantic_weight", type=float, default=None,
+                        help="Semantic weight. Defaults to 0.3, or 0.7 for attention_semantic_cf.")
     parser.add_argument("--cf_top_k", type=int, default=10,
                         help="Only compute counterfactual scores for the current top-K candidate lines. Default: 10.")
     parser.add_argument("--attention_weight", type=float, default=0.1,
@@ -62,6 +62,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prefer-explicit-labels", action="store_true",
                         help="Prefer graph metadata line labels before weak SARD/Juliet extraction.")
     return parser.parse_args()
+
+
+def resolve_semantic_weight(score_mode: str, semantic_weight) -> float:
+    if semantic_weight is not None:
+        return float(semantic_weight)
+    if score_mode == "attention_semantic_cf":
+        return 0.7
+    return 0.3
 
 
 def _sample_path(sample) -> str:
@@ -476,6 +484,7 @@ def main():
     paths = load_split_paths(config, args.split, args.limit, args.data_json)
     vocab = load_vocabulary(config, args.w2v, args.vocab)
     model = build_model(config, vocab, args.checkpoint, device, args.strict_checkpoint)
+    semantic_weight = resolve_semantic_weight(args.score_mode, args.semantic_weight)
 
     records = []
     report = LabelExtractionReport()
@@ -489,7 +498,7 @@ def main():
             args.prefer_explicit_labels,
             args.label_strategy,
             args.score_mode,
-            args.semantic_weight,
+            semantic_weight,
             args.cf_top_k,
             args.attention_weight,
             args.cf_weight,
