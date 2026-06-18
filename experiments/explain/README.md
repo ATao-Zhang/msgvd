@@ -23,7 +23,8 @@ python experiments/explain/run_explain_minimal.py \
   --checkpoint /server/path/to/best.ckpt \
   --w2v /server/path/to/w2v.wv \
   --output results/explain/minimal_sard_20.json \
-  --limit 20
+  --limit 20 \
+  --label_strategy xfg_stem
 ```
 
 Expected outputs:
@@ -63,7 +64,8 @@ python experiments/explain/run_explain_minimal.py \
   --checkpoint /server/path/to/best.ckpt \
   --w2v /server/path/to/w2v.wv \
   --output results/explain/minimal_sard_20.json \
-  --limit 20
+  --limit 20 \
+  --label_strategy xfg_stem
 ```
 
 If the server does not have `w2v.wv`, pass a saved vocabulary instead:
@@ -74,7 +76,8 @@ python experiments/explain/run_explain_minimal.py \
   --checkpoint /server/path/to/best.ckpt \
   --vocab /server/path/to/vocab.pkl \
   --output results/explain/minimal_sard_20.json \
-  --limit 20
+  --limit 20 \
+  --label_strategy xfg_stem
 ```
 
 Path arguments are explicit on purpose. The legacy `--split test` fallback is
@@ -92,6 +95,7 @@ python experiments/explain/run_explain_minimal.py \
   --w2v /server/path/to/w2v.wv \
   --output results/explain/minimal_sard_20.json \
   --limit 20 \
+  --label_strategy xfg_stem \
   --no_strict_checkpoint
 ```
 
@@ -124,7 +128,44 @@ line_score[line_no] = max(node_score of nodes on this line)
 Later stages should replace this minimal evidence with formal attention,
 counterfactual, GNNExplainer, or PGExplainer scores.
 
-## Weak Line Labels
+## Line Labels
+
+For SARD/XFG minimal localization, the default ground truth line strategy is
+`xfg_stem`. It uses the source line embedded in the XFG file name:
+
+```text
+.../XFG/87595/call/116.xfg.pkl -> true_vul_lines = [116]
+```
+
+Negative samples always receive `true_vul_lines = []` and
+`label_source = "non_vulnerable"` under this strategy. This prevents broad
+comment keywords from creating false line labels for non-vulnerable samples.
+
+Available strategies:
+
+- `xfg_stem`: default; use the first filename segment before `.`, for example
+  `47.xfg.pkl -> 47`.
+- `keyword_comment`: legacy weak-label keyword/API extraction; useful only for
+  manual checks, not the default.
+- `hybrid`: try `xfg_stem` first, then strict keyword comments if the filename
+  does not contain a usable line number.
+
+The label report contains:
+
+```text
+total_samples
+positive_samples
+negative_samples
+positive_with_line_labels
+positive_without_line_labels
+negative_with_line_labels_should_be_zero
+avg_vul_lines_per_positive_sample
+label_source_counter
+```
+
+If `negative_with_line_labels_should_be_zero > 0`, the runner prints a warning.
+
+## Weak Keyword Labels
 
 `label_extractor.py` implements SARD/Juliet-style weak labels. It first searches
 source lines for:
