@@ -1,9 +1,7 @@
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
-
-import networkx as nx
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 
 LABEL_KEYWORDS = (
@@ -73,7 +71,7 @@ def read_source_lines(file_path: str) -> List[str]:
     return path.read_text(encoding="utf-8", errors="ignore").splitlines()
 
 
-def graph_file_path(graph: nx.DiGraph) -> str:
+def graph_file_path(graph: Any) -> str:
     for key in ("file_path", "file_paths", "source_file", "file"):
         value = graph.graph.get(key)
         if isinstance(value, list):
@@ -83,7 +81,7 @@ def graph_file_path(graph: nx.DiGraph) -> str:
     return ""
 
 
-def explicit_graph_line_labels(graph: nx.DiGraph) -> List[int]:
+def explicit_graph_line_labels(graph: Any) -> List[int]:
     raw_lines: Set[int] = set()
     for key in ("vul_lines", "vulnerable_lines", "loc_lines", "line_labels"):
         value = graph.graph.get(key)
@@ -98,7 +96,7 @@ def explicit_graph_line_labels(graph: nx.DiGraph) -> List[int]:
     return sorted(raw_lines)
 
 
-def source_line_map(graph: nx.DiGraph, source_lines: Optional[Sequence[str]] = None) -> Dict[int, str]:
+def source_line_map(graph: Any, source_lines: Optional[Sequence[str]] = None) -> Dict[int, str]:
     mapping: Dict[int, str] = {}
     for node in graph:
         attrs = graph.nodes[node]
@@ -145,7 +143,7 @@ def _dangerous_api_lines(lines: Sequence[str], candidate_lines: Optional[Iterabl
 
 
 def extract_vulnerable_lines(
-    graph: nx.DiGraph,
+    graph: Any,
     source_lines: Optional[Sequence[str]] = None,
     prefer_explicit: bool = False,
 ) -> Tuple[List[int], str]:
