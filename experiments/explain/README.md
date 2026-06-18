@@ -80,6 +80,21 @@ python experiments/explain/run_explain_minimal.py \
 Path arguments are explicit on purpose. The legacy `--split test` fallback is
 kept for local repo-style layouts, but server runs should pass `--data_json`.
 
+Checkpoint loading is strict by default. The runner reads PyTorch Lightning
+checkpoints via `ckpt["state_dict"]` when present, adapts common prefixes such as
+`model.`, `net.`, and `module.`, prints a key-loading report, and stops if
+`loaded_ratio < 0.95`. Only use relaxed loading after inspecting the report:
+
+```bash
+python experiments/explain/run_explain_minimal.py \
+  --data_json /server/path/to/SARD/test.json \
+  --checkpoint /server/path/to/best.ckpt \
+  --w2v /server/path/to/w2v.wv \
+  --output results/explain/minimal_sard_20.json \
+  --limit 20 \
+  --no_strict_checkpoint
+```
+
 ## Evidence Scores
 
 This is a minimal version. If the model exposes `forward_with_evidence`, the
