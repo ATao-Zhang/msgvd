@@ -1,4 +1,5 @@
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -31,33 +32,49 @@ DANGEROUS_APIS = (
 @dataclass
 class LabelExtractionReport:
     total_samples: int = 0
-    vulnerable_samples: int = 0
-    samples_with_line_labels: int = 0
-    samples_without_line_labels: int = 0
-    total_vul_lines: int = 0
+    positive_samples: int = 0
+    negative_samples: int = 0
+    positive_with_line_labels: int = 0
+    positive_without_line_labels: int = 0
+    negative_with_line_labels_should_be_zero: int = 0
+    total_positive_vul_lines: int = 0
+    label_source_counter: Counter = field(default_factory=Counter)
     failures: List[Dict] = field(default_factory=list)
 
     def update(self, sample_id: str, label: int, true_vul_lines: Sequence[int], reason: str = ""):
         self.total_samples += 1
+        self.label_source_counter.update([reason or "unknown"])
         if int(label) == 1:
-            self.vulnerable_samples += 1
+            self.positive_samples += 1
             if true_vul_lines:
-                self.samples_with_line_labels += 1
-                self.total_vul_lines += len(true_vul_lines)
+                self.positive_with_line_labels += 1
+                self.total_positive_vul_lines += len(true_vul_lines)
             else:
-                self.samples_without_line_labels += 1
+                self.positive_without_line_labels += 1
                 self.failures.append({"sample_id": sample_id, "reason": reason or "no_line_label_found"})
+        else:
+            self.negative_samples += 1
+            if true_vul_lines:
+                self.negative_with_line_labels_should_be_zero += 1
+                self.failures.append({
+                    "sample_id": sample_id,
+                    "reason": reason or "negative_has_line_label",
+                    "true_vul_lines": list(true_vul_lines),
+                })
 
     def to_dict(self) -> Dict:
         avg = 0.0
-        if self.samples_with_line_labels:
-            avg = self.total_vul_lines / self.samples_with_line_labels
+        if self.positive_with_line_labels:
+            avg = self.total_positive_vul_lines / self.positive_with_line_labels
         return {
             "total_samples": self.total_samples,
-            "vulnerable_samples": self.vulnerable_samples,
-            "samples_with_line_labels": self.samples_with_line_labels,
-            "samples_without_line_labels": self.samples_without_line_labels,
-            "avg_vul_lines_per_sample": avg,
+            "positive_samples": self.positive_samples,
+            "negative_samples": self.negative_samples,
+            "positive_with_line_labels": self.positive_with_line_labels,
+            "positive_without_line_labels": self.positive_without_line_labels,
+            "negative_with_line_labels_should_be_zero": self.negative_with_line_labels_should_be_zero,
+            "avg_vul_lines_per_positive_sample": avg,
+            "label_source_counter": dict(self.label_source_counter),
             "failures": self.failures,
         }
 
@@ -120,6 +137,29 @@ def _keyword_lines(lines: Sequence[str]) -> List[int]:
     return hits
 
 
+def _strict_keyword_lines(lines: Sequence[str]) -> List[int]:
+    strict_patterns = (
+        re.compile(r"\bPOTENTIAL\s+FLAW\b", re.IGNORECASE),
+        re.compile(r"\bFLAW\b", re.IGNORECASE),
+        re.compile(r"\bsink\b", re.IGNORECASE),
+    )
+    hits = []
+    for idx, line in enumerate(lines, start=1):
+        if any(pattern.search(line) for pattern in strict_patterns):
+            hits.append(idx)
+    return hits
+
+
+def extract_xfg_stem_line(xfg_path: str, label: int) -> Tuple[List[int], str]:
+    if int(label) != 1:
+        return [], "non_vulnerable"
+    filename = Path(xfg_path).name
+    line_id = filename.split(".")[0]
+    if line_id.isdigit():
+        return [int(line_id)], "xfg_stem"
+    return [], "missing_xfg_stem"
+
+
 def _dangerous_api_lines(lines: Sequence[str], candidate_lines: Optional[Iterable[int]] = None) -> List[int]:
     candidates = set(int(line) for line in candidate_lines) if candidate_lines else None
     hits = []
@@ -144,14 +184,30 @@ def _dangerous_api_lines(lines: Sequence[str], candidate_lines: Optional[Iterabl
 
 def extract_vulnerable_lines(
     graph: Any,
+    xfg_path: str = "",
+    label: Optional[int] = None,
+    strategy: str = "xfg_stem",
     source_lines: Optional[Sequence[str]] = None,
     prefer_explicit: bool = False,
 ) -> Tuple[List[int], str]:
-    """Extract SARD/Juliet weak line labels for one graph.
+    """Extract line-level labels for one graph.
 
-    The minimal experiment defaults to keyword/API weak labels. Explicit graph
-    labels can be preferred by passing ``prefer_explicit=True``.
+    The default SARD/XFG strategy reads the source line from filenames such as
+    ``116.xfg.pkl``. Keyword extraction is retained as a non-default weak-label
+    fallback for manual checks.
     """
+    graph_label = int(label if label is not None else graph.graph.get("label", 0))
+    if graph_label != 1:
+        return [], "non_vulnerable"
+
+    if strategy == "xfg_stem":
+        return extract_xfg_stem_line(xfg_path, graph_label)
+
+    if strategy == "hybrid":
+        stem_lines, stem_source = extract_xfg_stem_line(xfg_path, graph_label)
+        if stem_lines:
+            return stem_lines, stem_source
+
     explicit = explicit_graph_line_labels(graph)
     if prefer_explicit and explicit:
         return explicit, "graph_metadata"
@@ -159,9 +215,10 @@ def extract_vulnerable_lines(
     if source_lines is None:
         source_lines = read_source_lines(graph_file_path(graph))
 
-    keyword_hits = _keyword_lines(source_lines)
+    keyword_hits = _strict_keyword_lines(source_lines) if strategy == "hybrid" else _keyword_lines(source_lines)
     if keyword_hits:
-        return sorted(set(keyword_hits)), "keyword_comment"
+        source = "strict_keyword_comment" if strategy == "hybrid" else "keyword_comment"
+        return sorted(set(keyword_hits)), source
 
     candidate_lines = []
     for node in graph:
@@ -175,4 +232,6 @@ def extract_vulnerable_lines(
 
     if explicit:
         return explicit, "graph_metadata_fallback"
+    if strategy == "hybrid":
+        return [], stem_source
     return [], "not_found"
