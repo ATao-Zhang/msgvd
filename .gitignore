@@ -4,8 +4,18 @@
 __pycache__/
 notebooks/
 ts_logger/
+data/
+datasets/
+results/
+lightning_logs/
+wandb/
 
 *.pyc
+*.ckpt
+*.pt
+*.pth
+*.gpickle
+*.wv
 .*/
 *.htmldwk_preprocess.zip
 joern-cli.zip
