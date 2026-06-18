@@ -119,6 +119,24 @@ def load_vocabulary(config, w2v_path: str = None, vocab_path: str = None):
     raise ValueError("Either --w2v or --vocab must be provided for server execution.")
 
 
+def resolve_mask_token_id(vocab):
+    candidates = ("<UNK>", "[UNK]", "UNK", "unk", "<unk>", "<MASK>", "[MASK]", "MASK", "mask")
+    pad_id = vocab.get_pad_id()
+    token_to_id = getattr(vocab, "token_to_id", {}) or {}
+    for token in candidates:
+        if token in token_to_id and int(token_to_id[token]) != int(pad_id):
+            return int(token_to_id[token])
+    if hasattr(vocab, "convert_token_to_id"):
+        for token in candidates:
+            try:
+                token_id = int(vocab.convert_token_to_id(token))
+            except Exception:
+                continue
+            if token_id != int(pad_id):
+                return token_id
+    return None
+
+
 def _extract_state_dict(checkpoint):
     if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
         return checkpoint["state_dict"]
@@ -431,6 +449,7 @@ def explain_one(model, config, vocab, xfg_path: str, device, prefer_explicit_lab
             original_prob=float(evidence["prob"]),
             device=device,
             pad_id=vocab.get_pad_id(),
+            mask_id=resolve_mask_token_id(vocab),
             cf_top_k=cf_top_k,
         )
         for warning in cf_warnings[:3]:
