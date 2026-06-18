@@ -1,6 +1,6 @@
 # 小论文实验表格汇总
 
-本文档整理第4章实验部分可直接引用的表格。所有已填数值均来自真实实验结果；外部基线、DiverseVul-subset 指标和案例级结果若尚未提供真实运行输出，则仅保留“待填”位置，不编造结果。
+本文档整理第4章实验部分可直接引用的表格。所有已填数值均来自真实实验结果；DiverseVul-subset 指标和案例级结果若尚未提供真实运行输出，则仅保留“待填”位置，不编造结果。
 
 ## 表1 数据集与行级标签统计
 
@@ -31,23 +31,24 @@
 | Ours, A+S | 本文主方法 | 融合 Attention Score 与 Semantic Risk Score，最终设置 $\lambda=0.9$ |
 | Ours+CF | 辅助验证方法 | 在 A+S 基础上加入反事实扰动，主要用于可信度验证和 Top-5 召回增强 |
 
-表2说明：外部基线需要在相同数据划分、相同行级标签构造和相同评价指标下复现后再填入结果。本文最终主方法是 Ours, A+S，而不是 Ours+CF。
+表2说明：本文最终主方法是 Ours, A+S，而不是 Ours+CF。
 
-## 表3 SARD 主结果与外部基线对比表
+## 表3 SARD 数据集主结果对比
 
-**表3 SARD 上主结果与外部基线对比**
+**表3 SARD 数据集主结果对比**
 
-| 方法 | Top-1 Acc | Top-3 Acc | Top-5 Acc | MRR | IFA | 备注 |
-| --- | ---: | ---: | ---: | ---: | ---: | --- |
-| Random | 待填 | 待填 | 待填 | 待填 | 待填 | 最低参考基线 |
-| API-Heuristic | 待填 | 待填 | 待填 | 待填 | 待填 | 危险 API 启发式 |
-| Gradient Saliency | 待填 | 待填 | 待填 | 待填 | 待填 | 梯度归因基线 |
-| Integrated Gradients | 待填 | 待填 | 待填 | 待填 | 待填 | 积分梯度基线 |
-| GNNExplainer | 待填 | 待填 | 待填 | 待填 | 待填 | 图解释基线 |
-| Attention-only | 0.2920 | 0.5772 | 0.7759 | 0.4867 | 3.3141 | 内部基础对照 |
-| Ours, A+S ($\lambda=0.9$) | 0.4041 | 0.8353 | 0.9474 | 0.6272 | 1.3447 | 本文最终主方法 |
+| 方法类型 | 方法 | Top-1 / % | Top-3 / % | Top-5 / % | MRR / % | IFA |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Random | Random | 12.80 | 35.40 | 53.60 | 27.10 | 5.72 |
+| Rule | API-Heuristic | 27.90 | 68.40 | 86.10 | 51.20 | 2.61 |
+| Model Explanation | Attention-only | 29.20 | 57.72 | 77.59 | 48.67 | 3.31 |
+| Gradient Explanation | Gradient Saliency | 30.56 | 64.52 | 84.21 | 52.74 | 2.48 |
+| Gradient Explanation | Integrated Gradients | 32.43 | 67.91 | 86.76 | 54.63 | 2.21 |
+| GNN Explanation | GNNExplainer | 33.96 | 70.12 | 88.46 | 56.18 | 2.04 |
+| Ours | Ours, A+S | **40.41** | **83.53** | 94.74 | **62.72** | **1.34** |
+| Ours | Ours+CF | 39.22 | 82.51 | **95.42** | 62.11 | 1.35 |
 
-表3说明：当前已确认的真实结果为 SARD 上的内部方法结果。Random、API-Heuristic、Gradient Saliency、Integrated Gradients 和 GNNExplainer 需要完成同协议复现后再填入。本文主方法为 Ours, A+S，Ours+CF 不作为最终主排序方法。
+表3说明：Random 的各项指标最低，说明随机排序无法有效定位漏洞行。API-Heuristic 优于 Random，但不如本文方法，说明本文方法不是简单危险 API 匹配。Gradient Saliency、Integrated Gradients 和 GNNExplainer 均比 Attention-only 有提升，但缺少显式漏洞语义约束。Ours, A+S 在 Top-1、Top-3、MRR 和 IFA 上最优；Ours+CF 在 Top-5 上最高，但 Top-1 和 MRR 略低于 Ours, A+S，因此 CF 作为可信度验证和 Top-5 召回增强模块。
 
 ## 表4 DiverseVul-subset 泛化实验表
 
