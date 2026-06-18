@@ -31,6 +31,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=20, help="Maximum number of samples to run.")
     parser.add_argument("--output", required=True, help="Output JSON path.")
     parser.add_argument("--vocab", default=None, help="Optional pickled vocabulary path.")
+    parser.add_argument("--strict_checkpoint", dest="strict_checkpoint", action="store_true", default=True,
+                        help="Require exact checkpoint/model key match after prefix adaptation. Default: enabled.")
+    parser.add_argument("--no_strict_checkpoint", dest="strict_checkpoint", action="store_false",
+                        help="Allow relaxed loading after prefix adaptation if loaded_ratio >= 0.95.")
     parser.add_argument("--prefer-explicit-labels", action="store_true",
                         help="Prefer graph metadata line labels before weak SARD/Juliet extraction.")
     return parser.parse_args()
@@ -83,7 +87,106 @@ def load_vocabulary(config, w2v_path: str = None, vocab_path: str = None):
     raise ValueError("Either --w2v or --vocab must be provided for server execution.")
 
 
-def build_model(config, vocab, checkpoint_path: str, device):
+def _extract_state_dict(checkpoint):
+    if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+        return checkpoint["state_dict"]
+    return checkpoint
+
+
+def _strip_prefix(key: str, prefixes: Tuple[str, ...]) -> str:
+    changed = True
+    while changed:
+        changed = False
+        for prefix in prefixes:
+            if key.startswith(prefix):
+                key = key[len(prefix):]
+                changed = True
+    return key
+
+
+def _checkpoint_key_variants(key: str) -> List[str]:
+    prefixes = ("model.", "net.", "module.", "_forward_module.", "model.net.", "model.module.")
+    stripped = _strip_prefix(key, prefixes)
+    variants = [key, stripped]
+    for prefix in prefixes:
+        if key.startswith(prefix):
+            variants.append(key[len(prefix):])
+        if stripped.startswith(prefix):
+            variants.append(stripped[len(prefix):])
+    return list(dict.fromkeys(variants))
+
+
+def _select_checkpoint_keys(model_state: Dict, checkpoint_state: Dict) -> Tuple[Dict, Dict]:
+    adapted = {}
+    skipped_shape = {}
+    model_keys = set(model_state.keys())
+    for ckpt_key, value in checkpoint_state.items():
+        matched_key = None
+        for candidate_key in _checkpoint_key_variants(ckpt_key):
+            if candidate_key in model_keys:
+                matched_key = candidate_key
+                break
+        if matched_key is None:
+            continue
+        if tuple(model_state[matched_key].shape) != tuple(value.shape):
+            skipped_shape[matched_key] = {
+                "checkpoint_key": ckpt_key,
+                "model_shape": list(model_state[matched_key].shape),
+                "checkpoint_shape": list(value.shape),
+            }
+            continue
+        adapted[matched_key] = value
+    return adapted, skipped_shape
+
+
+def _checkpoint_report(checkpoint_path: str, model_state: Dict, checkpoint_state: Dict,
+                       adapted_state: Dict, skipped_shape: Dict) -> Dict:
+    model_keys = set(model_state.keys())
+    checkpoint_keys = set(checkpoint_state.keys())
+    loaded_keys = set(adapted_state.keys())
+    missing = sorted(model_keys - loaded_keys)
+    matched_checkpoint_keys = set()
+    for ckpt_key in checkpoint_keys:
+        if any(candidate in loaded_keys for candidate in _checkpoint_key_variants(ckpt_key)):
+            matched_checkpoint_keys.add(ckpt_key)
+    unexpected = sorted(checkpoint_keys - matched_checkpoint_keys)
+    loaded_ratio = len(loaded_keys) / max(len(model_keys), 1)
+    return {
+        "checkpoint_path": checkpoint_path,
+        "num_model_keys": len(model_keys),
+        "num_checkpoint_keys": len(checkpoint_keys),
+        "num_loaded_keys": len(loaded_keys),
+        "num_missing_keys": len(missing),
+        "num_unexpected_keys": len(unexpected),
+        "num_shape_mismatch_keys": len(skipped_shape),
+        "loaded_ratio": loaded_ratio,
+        "first_10_missing_keys": missing[:10],
+        "first_10_unexpected_keys": unexpected[:10],
+        "first_10_shape_mismatch_keys": list(skipped_shape.items())[:10],
+        "first_30_model_keys": sorted(model_keys)[:30],
+        "first_30_checkpoint_keys": sorted(checkpoint_keys)[:30],
+    }
+
+
+def _print_checkpoint_report(report: Dict):
+    print("[checkpoint_report]")
+    for key in (
+        "checkpoint_path",
+        "num_model_keys",
+        "num_checkpoint_keys",
+        "num_loaded_keys",
+        "num_missing_keys",
+        "num_unexpected_keys",
+        "num_shape_mismatch_keys",
+        "loaded_ratio",
+        "first_10_missing_keys",
+        "first_10_unexpected_keys",
+        "first_10_shape_mismatch_keys",
+    ):
+        print(f"{key}: {report[key]}")
+
+
+def build_model(config, vocab, checkpoint_path: str, device, strict_checkpoint: bool = True):
     import torch
 
     from src.models.vd import DeepWuKong
@@ -92,16 +195,39 @@ def build_model(config, vocab, checkpoint_path: str, device):
         raise FileNotFoundError(f"checkpoint not found: {checkpoint_path}")
     model = DeepWuKong(config, vocab, vocab.get_vocab_size(), vocab.get_pad_id())
     checkpoint = torch.load(checkpoint_path, map_location=device)
-    state_dict = checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
-    cleaned_state = {}
-    for key, value in state_dict.items():
-        cleaned_key = key[6:] if key.startswith("model.") else key
-        cleaned_state[cleaned_key] = value
-    missing, unexpected = model.load_state_dict(cleaned_state, strict=False)
-    if missing:
-        print(f"[warn] missing checkpoint keys: {len(missing)}")
-    if unexpected:
-        print(f"[warn] unexpected checkpoint keys: {len(unexpected)}")
+    state_dict = _extract_state_dict(checkpoint)
+    if not isinstance(state_dict, dict):
+        raise TypeError(f"Unsupported checkpoint state_dict type: {type(state_dict)!r}")
+
+    model_state = model.state_dict()
+    adapted_state, skipped_shape = _select_checkpoint_keys(model_state, state_dict)
+    report = _checkpoint_report(checkpoint_path, model_state, state_dict, adapted_state, skipped_shape)
+    _print_checkpoint_report(report)
+
+    if report["loaded_ratio"] < 0.95:
+        raise RuntimeError(
+            "Checkpoint/model key match is too low. "
+            f"loaded_ratio={report['loaded_ratio']:.4f}. "
+            f"First 30 model keys: {report['first_30_model_keys']}. "
+            f"First 30 checkpoint keys: {report['first_30_checkpoint_keys']}."
+        )
+
+    if strict_checkpoint and (
+        report["num_missing_keys"] > 0
+        or report["num_unexpected_keys"] > 0
+        or report["num_shape_mismatch_keys"] > 0
+    ):
+        raise RuntimeError(
+            "Strict checkpoint loading failed after prefix adaptation. "
+            "Use --no_strict_checkpoint only after confirming the reported keys are acceptable."
+        )
+
+    load_result = model.load_state_dict(adapted_state, strict=strict_checkpoint)
+    if not strict_checkpoint:
+        missing = list(load_result.missing_keys)
+        unexpected = list(load_result.unexpected_keys)
+        if missing or unexpected:
+            print(f"[warn] relaxed checkpoint loading missing={len(missing)} unexpected={len(unexpected)}")
     model.to(device)
     model.eval()
     return model
@@ -229,7 +355,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     paths = load_split_paths(config, args.split, args.limit, args.data_json)
     vocab = load_vocabulary(config, args.w2v, args.vocab)
-    model = build_model(config, vocab, args.checkpoint, device)
+    model = build_model(config, vocab, args.checkpoint, device, args.strict_checkpoint)
 
     records = []
     report = LabelExtractionReport()
