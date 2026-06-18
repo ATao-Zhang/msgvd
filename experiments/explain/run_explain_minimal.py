@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+import torch
+
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -187,8 +189,6 @@ def _print_checkpoint_report(report: Dict):
 
 
 def build_model(config, vocab, checkpoint_path: str, device, strict_checkpoint: bool = True):
-    import torch
-
     from src.models.vd import DeepWuKong
 
     if not Path(checkpoint_path).exists():
@@ -234,8 +234,6 @@ def build_model(config, vocab, checkpoint_path: str, device, strict_checkpoint: 
 
 
 def _normalize_scores(scores):
-    import torch
-
     scores = scores.detach().float().cpu()
     if scores.numel() == 0:
         return scores
@@ -247,8 +245,6 @@ def _normalize_scores(scores):
 
 
 def _evidence_scores(model, graph_batch) -> Tuple[object, int, Dict[str, object]]:
-    import torch
-
     if hasattr(model, "forward_with_evidence"):
         evidence = model.forward_with_evidence(graph_batch)
         logits = evidence["logits"]
@@ -348,7 +344,6 @@ def write_metrics_csv(metrics_path: Path, metrics: Dict[str, float]):
 def main():
     args = parse_args()
 
-    import torch
     from omegaconf import OmegaConf
 
     config = OmegaConf.load(args.config)
