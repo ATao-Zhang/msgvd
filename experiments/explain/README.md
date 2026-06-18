@@ -251,18 +251,23 @@ train a new model and does not change preprocessing.
 
 For each sample, the runner first builds an `attention_semantic` candidate order
 and only perturbs the first `--cf_top_k` lines. For a candidate line, all graph
-nodes whose `Data.line_ids` equal that source line are masked by replacing their
-`Data.x` token ids with the vocabulary PAD id. Optional `stmt_features` for the
+nodes whose `Data.line_ids` equal that source line are masked with a token-level
+length-preserving perturbation: original PAD positions stay PAD, and original
+non-PAD token ids are replaced by an UNK/MASK id when available. If no UNK/MASK
+id can be found, the scorer falls back to a legal non-PAD token already present
+in the node sequence. This avoids turning a node into an all-PAD sequence, which
+would make the ST/RNN encoder see length 0. Optional `stmt_features` for the
 same nodes are zeroed. The model is then forwarded again:
 
 ```text
 cf_score(line) = max(0, P_vul(original) - P_vul(mask_line))
 ```
 
-If the graph does not expose `line_ids` or `x`, or if a candidate line has no
-matching node, the runner prints a warning and leaves that line with
-`cf_score = 0`, `masked_prob = null`, and `prob_drop = 0`. It does not invent
-counterfactual scores.
+If the graph does not expose `line_ids` or 2D token `x`, if a candidate line has
+no matching node, or if a single masked forward fails, the runner prints a
+warning and leaves that line with `cf_score = 0`, `masked_prob = null`, and
+`prob_drop = 0`. It does not invent counterfactual scores or interrupt the full
+experiment because of one failed line.
 
 Each `top_lines` entry includes:
 
