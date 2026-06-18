@@ -128,6 +128,75 @@ line_score[line_no] = max(node_score of nodes on this line)
 Later stages should replace this minimal evidence with formal attention,
 counterfactual, GNNExplainer, or PGExplainer scores.
 
+## Score Modes
+
+The default remains the attention-only baseline:
+
+```bash
+python experiments/explain/run_explain_minimal.py \
+  --data_json data/SARD/test.json \
+  --checkpoint ts_logger/DeepWuKong/SARD/version_4/checkpoints/epoch=32-step=10922-val_loss=0.1582.ckpt \
+  --w2v data/SARD/w2v.wv \
+  --output results/explain/baseline_attention_only_sard_full.json \
+  --limit 2648 \
+  --label_strategy xfg_stem \
+  --score_mode attention
+```
+
+Semantic-only ranking:
+
+```bash
+python experiments/explain/run_explain_minimal.py \
+  --data_json data/SARD/test.json \
+  --checkpoint ts_logger/DeepWuKong/SARD/version_4/checkpoints/epoch=32-step=10922-val_loss=0.1582.ckpt \
+  --w2v data/SARD/w2v.wv \
+  --output results/explain/semantic_only_sard_full.json \
+  --limit 2648 \
+  --label_strategy xfg_stem \
+  --score_mode semantic
+```
+
+Attention plus semantic risk:
+
+```bash
+python experiments/explain/run_explain_minimal.py \
+  --data_json data/SARD/test.json \
+  --checkpoint ts_logger/DeepWuKong/SARD/version_4/checkpoints/epoch=32-step=10922-val_loss=0.1582.ckpt \
+  --w2v data/SARD/w2v.wv \
+  --output results/explain/attention_semantic_sard_full_w03.json \
+  --limit 2648 \
+  --label_strategy xfg_stem \
+  --score_mode attention_semantic \
+  --semantic_weight 0.3
+```
+
+`attention_score` and `semantic_score` are normalized to `[0, 1]` per sample.
+For `attention_semantic`, the final score is:
+
+```python
+final_score = (1 - semantic_weight) * attention_score_norm + semantic_weight * semantic_score_norm
+```
+
+Semantic Risk Score is a clipped `[0, 1]` rule-based score:
+
+- dangerous copy/string APIs: `+1.0`
+  `strcpy`, `wcscpy`, `strcat`, `wcscat`, `sprintf`, `vsprintf`, `gets`,
+  `memcpy`, `memmove`, `strncpy`, `wcsncpy`
+- memory allocation/free APIs: `+0.7`
+  `malloc`, `calloc`, `realloc`, `free`, `alloca`, `new`, `delete`
+- input/external source APIs: `+0.6`
+  `scanf`, `fscanf`, `sscanf`, `fgets`, `fread`, `read`, `recv`, `getenv`,
+  `argv`, `atoi`, `atol`, `strtol`
+- array/pointer access: `+0.5`
+  `[]`, `->`, and pointer-like assignment
+- length/boundary functions: `+0.4`
+  `strlen`, `wcslen`, `sizeof`
+- arithmetic operators: `+0.2`
+  `+`, `-`, `*`, `/`, `%`, `<<`, `>>`
+
+Each `top_lines` entry includes `attention_score`, `semantic_score`,
+`final_score`, and `semantic_tags`.
+
 ## Line Labels
 
 For SARD/XFG minimal localization, the default ground truth line strategy is
