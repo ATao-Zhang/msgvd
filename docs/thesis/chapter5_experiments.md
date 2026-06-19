@@ -52,19 +52,21 @@ DiverseVul-subset 的行级标签是近似标签而非人工逐行审计标签�
 
 （8）Semantic-only。仅使用本文语义风险分数排序，用于评估危险 API、内存操作、输入源、数组指针访问、边界函数和算术操作等语义规则的独立贡献。
 
-（9）Counterfactual-only。仅使用反事实扰动后的漏洞概率下降分数排序。对于候选行 $v_i$，反事实分数定义为：
+（9）Counterfactual-only。仅使用反事实扰动后的漏洞概率下降分数排序。对于候选行 $v_i$，反事实分数如式（1）所示。
 
-$$
+```math
 C(v_i)=\max\left(0, P_{\mathrm{vul}}(G)-P_{\mathrm{vul}}(G_{\setminus i})\right)
-$$
+```
 
-（10）Ours, A+S。本文主方法，融合 Attention Score 和 Semantic Risk Score。对于候选代码行 $v_i$，最终分数为：
+式（1）表示候选行反事实扰动前后的漏洞概率下降值。
 
-$$
-S(v_i) = (1-\lambda)\hat{A}(v_i) + \lambda\hat{R}(v_i)
-$$
+（10）Ours, A+S。本文主方法，融合 Attention Score 和 Semantic Risk Score。对于候选代码行 $v_i$，最终分数如式（2）所示。
 
-其中，$\hat{A}(v_i)$ 表示归一化后的注意力证据分数，$\hat{R}(v_i)$ 表示归一化后的语义风险分数，$\lambda$ 为语义风险权重。最终设置 $\lambda=0.9$。
+```math
+S(v_i) = (1 - \lambda)\hat{A}(v_i) + \lambda\hat{R}(v_i)
+```
+
+式（2）中，$S(v_i)$ 表示代码元素 $v_i$ 的综合漏洞评分，$\hat{A}(v_i)$ 表示归一化后的注意力证据分数，$\hat{R}(v_i)$ 表示归一化后的语义风险分数，$\lambda$ 表示语义风险权重。最终设置 $\lambda=0.9$。
 
 （11）Ours+CF。在 A+S 基础上加入反事实扰动验证，主要用于可信度验证和 Top-5 召回增强，不作为最终主排序方法。
 
@@ -72,19 +74,21 @@ $$
 
 本文采用 Top-1 Accuracy、Top-3 Accuracy、Top-5 Accuracy、MRR 和 IFA 评价漏洞行级定位效果。所有指标仅在具有行级漏洞标签的正样本上计算。
 
-Top-k Accuracy 表示排序前 $k$ 个候选代码行中是否命中任意真实漏洞行：
+Top-k Accuracy 表示排序前 $k$ 个候选代码行中是否命中任意真实漏洞行，如式（3）所示。
 
-$$
+```math
 Top\text{-}k=\frac{1}{N}\sum_{i=1}^{N}I(R_i^k\cap Y_i\neq\varnothing)
-$$
+```
 
-MRR（Mean Reciprocal Rank）用于衡量第一个真实漏洞行在排序列表中的平均倒数排名：
+式（3）表示 Top-k Accuracy 的计算方式，其中 $R_i^k$ 表示第 $i$ 个样本排序前 $k$ 个候选代码行，$Y_i$ 表示真实漏洞行集合。
 
-$$
+MRR（Mean Reciprocal Rank）用于衡量第一个真实漏洞行在排序列表中的平均倒数排名，如式（4）所示。
+
+```math
 MRR=\frac{1}{N}\sum_{i=1}^{N}\frac{1}{rank_i}
-$$
+```
 
-IFA 表示 Initial False Alarm，即找到第一个真实漏洞行之前需要检查的非漏洞候选行数量。若真实漏洞行排名为第 $r$ 位，则该样本的 IFA 为 $r-1$。IFA 越低，说明人工审计成本越低。
+式（4）表示 MRR 的计算方式，其中 $rank_i$ 表示第 $i$ 个样本中第一个真实漏洞行的排序位置。IFA 表示 Initial False Alarm，即找到第一个真实漏洞行之前需要检查的非漏洞候选行数量。若真实漏洞行排名为第 $r$ 位，则该样本的 IFA 为 $r-1$。IFA 越低，说明人工审计成本越低。
 
 ## 4.5 主结果对比
 
@@ -153,11 +157,13 @@ Counterfactual-only 的 Top-1 低于 Attention-only 和 Semantic-only，但 Top-
 
 ## 4.8 参数敏感性分析
 
-本文对 A+S 方法中的语义权重 $\lambda$ 进行参数敏感性分析。融合公式为：
+本文对 A+S 方法中的语义权重 $\lambda$ 进行参数敏感性分析。融合公式如式（5）所示。
 
-$$
-S(v_i) = (1-\lambda)\hat{A}(v_i) + \lambda\hat{R}(v_i)
-$$
+```math
+S(v_i) = (1 - \lambda)\hat{A}(v_i) + \lambda\hat{R}(v_i)
+```
+
+式（5）中，$S(v_i)$ 表示代码元素 $v_i$ 的综合漏洞评分，$\hat{A}(v_i)$ 表示归一化后的注意力证据分数，$\hat{R}(v_i)$ 表示归一化后的语义风险分数，$\lambda$ 表示语义风险权重。
 
 **表6 semantic_weight 参数敏感性分析**
 
@@ -172,11 +178,13 @@ $$
 
 ## 4.9 反事实扰动分析
 
-反事实扰动模块通过局部 mask 候选行对应节点，观察漏洞预测概率下降程度，从而验证候选行是否真正影响模型预测。反事实分数定义为：
+反事实扰动模块通过局部 mask 候选行对应节点，观察漏洞预测概率下降程度，从而验证候选行是否真正影响模型预测。反事实分数如式（6）所示。
 
-$$
+```math
 C(v_i)=\max\left(0, P_{\mathrm{vul}}(G)-P_{\mathrm{vul}}(G_{\setminus i})\right)
-$$
+```
+
+式（6）表示候选行反事实扰动前后的漏洞概率下降值。
 
 **表7 反事实扰动分析**
 
