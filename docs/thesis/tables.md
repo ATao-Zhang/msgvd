@@ -9,9 +9,9 @@
 | 数据集 | 总样本数 | 正样本数 | 负样本数 | 有行级标签的正样本数 | 定位评估样本数 | 行级标签来源 |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
 | SARD test | 2648 | 589 | 2059 | 589 | 589 | xfg_stem |
-| DiverseVul-subset | 1500 | 500 | 1000 | 500 | 500 | patch diff 近似行级标签 |
+| DiverseVul-subset | 1513 | 487 | 1026 | 487 | 487 | patch diff 近似行级标签 |
 
-表1说明：SARD 采用 `xfg_stem` 策略从 XFG 文件名中提取漏洞行号，例如 `116.xfg.pkl -> true_vul_lines=[116]`。负样本不生成漏洞行标签，只有正样本参与 Top-k、MRR 和 IFA 定位评估。DiverseVul-subset 来源于真实开源项目漏洞修复提交，行级标签由补丁 diff 中被删除或被修改的代码行映射回漏洞函数内部得到，并过滤补丁过大、修改范围过宽、无法稳定映射和 tangled patch 严重的样本。
+表1说明：SARD 采用 `xfg_stem` 策略从 XFG 文件名中提取漏洞行号，例如 `116.xfg.pkl -> true_vul_lines=[116]`。负样本不生成漏洞行标签，只有正样本参与 Top-k、MRR 和 IFA 定位评估。DiverseVul-subset 从原始 DiverseVul 数据集中筛选得到 1513 个函数级样本，其中漏洞样本 487 个、非漏洞样本 1026 个；行级标签由补丁 diff 中被删除或被修改的代码行映射回漏洞函数内部得到，并过滤补丁过大、修改范围过宽、无法稳定映射和 tangled patch 严重的样本。
 
 ## 表2 对比方法说明表
 
