@@ -405,14 +405,14 @@ Semantic-only 明显优于 Attention-only，说明危险 API、内存操作、�
 
 ## 参考文献
 
-[1] 传统静态分析与源代码漏洞检测相关研究文献，待补充。
+[1] Chess B, McGraw G. Static analysis for security[J]. IEEE Security & Privacy, 2004, 2(6): 76-79.
 
-[2] 基于深度学习的源代码漏洞检测相关研究文献，待补充。
+[2] Li Z, Zou D, Xu S, Jin H, Zhu Y, Chen Z. VulDeePecker: A deep learning-based system for vulnerability detection[C]//Proceedings of the 25th Annual Network and Distributed System Security Symposium (NDSS). 2018.
 
-[3] 基于 Transformer 或代码预训练模型的源代码分析相关研究文献，待补充。
+[3] Feng Z, Guo D, Tang D, Duan N, Feng X, Gong M, et al. CodeBERT: A pre-trained model for programming and natural languages[C]//Findings of the Association for Computational Linguistics: EMNLP 2020. Stroudsburg: Association for Computational Linguistics, 2020: 1536-1547.
 
-[4] 基于图神经网络的程序表示学习与漏洞检测相关研究文献，待补充。
+[4] Zhou Y, Liu S, Siow J, Du X, Liu Y. Devign: Effective vulnerability identification by learning comprehensive program semantics via graph neural networks[C]//Advances in Neural Information Processing Systems 32. 2019.
 
-[5] 注意力机制在代码分析与漏洞检测解释中的相关研究文献，待补充。
+[5] Vaswani A, Shazeer N, Parmar N, Uszkoreit J, Jones L, Gomez A N, et al. Attention is all you need[C]//Advances in Neural Information Processing Systems 30. 2017.
 
-[6] 梯度归因、Integrated Gradients 与 GNNExplainer 等模型解释方法相关研究文献，待补充。
+[6] Ying Z, Bourgeois D, You J, Zitnik M, Leskovec J. GNNExplainer: Generating explanations for graph neural networks[C]//Advances in Neural Information Processing Systems 32. 2019.
