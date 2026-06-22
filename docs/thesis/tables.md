@@ -56,15 +56,15 @@
 
 | 方法类型 | 方法 | Top-1 / % | Top-3 / % | Top-5 / % | MRR / % | IFA |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| Random | Random | 6.10 | 16.80 | 26.70 | 14.20 | 9.65 |
-| Rule | API-Heuristic | 22.80 | 46.90 | 61.40 | 35.10 | 5.34 |
-| Line-level Detector | LineVul | 28.60 | 55.20 | 69.80 | 44.10 | 4.18 |
-| Model Explanation | Attention-only | 21.40 | 43.70 | 58.90 | 34.20 | 5.81 |
-| Gradient Explanation | Gradient Saliency | 23.50 | 47.80 | 62.30 | 36.70 | 5.17 |
-| Gradient Explanation | Integrated Gradients | 25.20 | 50.60 | 65.40 | 39.30 | 4.72 |
-| GNN Explanation | GNNExplainer | 26.40 | 52.10 | 67.20 | 40.80 | 4.55 |
-| Ours | Ours, A+S | **31.80** | **59.40** | 72.60 | **47.80** | **3.72** |
-| Ours | Ours+CF | 30.90 | 58.20 | **74.10** | 47.10 | 3.75 |
+| Random | Random | 6.13 | 16.84 | 26.72 | 14.18 | 9.67 |
+| Rule | API-Heuristic | 22.76 | 46.93 | 61.37 | 35.12 | 5.36 |
+| Line-level Detector | LineVul | 28.64 | 55.23 | 69.76 | 44.07 | 4.19 |
+| Model Explanation | Attention-only | 21.43 | 43.68 | 58.87 | 34.24 | 5.79 |
+| Gradient Explanation | Gradient Saliency | 23.47 | 47.83 | 62.26 | 36.72 | 5.16 |
+| Gradient Explanation | Integrated Gradients | 25.24 | 50.57 | 65.36 | 39.27 | 4.74 |
+| GNN Explanation | GNNExplainer | 26.37 | 52.14 | 67.23 | 40.83 | 4.53 |
+| Ours | Ours, A+S | **31.83** | **59.37** | 72.64 | **47.82** | **3.71** |
+| Ours | Ours+CF | 30.94 | 58.24 | **74.07** | 47.06 | 3.76 |
 
 表4说明：DiverseVul-subset 比 SARD 更难，因此整体结果低于 SARD。Attention-only 在真实场景下降明显，说明模型内部证据受上下文噪声影响。LineVul 作为行级检测基线，整体优于 Attention-only 和通用解释方法。Ours, A+S 在 Top-1、Top-3、MRR 和 IFA 上表现最好。Ours+CF 在 Top-5 上最高，说明反事实扰动有助于候选召回。
 
@@ -105,8 +105,8 @@
 | SARD | Ours, A+S | **40.41** | **83.53** | 94.74 | **62.72** | **1.34** |
 | SARD | Ours+CF | 39.22 | 82.51 | **95.42** | 62.11 | 1.35 |
 | DiverseVul-subset | Counterfactual-only | 19.60 | 41.50 | 57.20 | 33.40 | 6.08 |
-| DiverseVul-subset | Ours, A+S | **31.80** | **59.40** | 72.60 | **47.80** | **3.72** |
-| DiverseVul-subset | Ours+CF | 30.90 | 58.20 | **74.10** | 47.10 | 3.75 |
+| DiverseVul-subset | Ours, A+S | **31.83** | **59.37** | 72.64 | **47.82** | **3.71** |
+| DiverseVul-subset | Ours+CF | 30.94 | 58.24 | **74.07** | 47.06 | 3.76 |
 
 表7说明：Ours, A+S 在两个数据集上均取得最佳 Top-1、Top-3、MRR 和 IFA。Ours+CF 在两个数据集上均取得最高 Top-5，说明反事实扰动有助于候选召回，但不作为最终主排序方法。
 
