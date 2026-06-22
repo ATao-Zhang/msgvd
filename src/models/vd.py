@@ -2,7 +2,7 @@ from torch import nn
 from omegaconf import DictConfig
 import torch
 from src.datas.samples import XFGBatch
-from typing import Dict
+from typing import Dict, Optional
 from pytorch_lightning import LightningModule
 from src.models.modules.gnns import GraphConvEncoder, GatedGraphConvEncoder
 from torch.optim import Adam, SGD, Adamax, RMSprop
@@ -60,6 +60,14 @@ class DeepWuKong(LightningModule):
         self.__hidden_layers = nn.Sequential(*layers)
         self.__classifier = nn.Linear(hidden_size, config.classifier.n_classes)
 
+    @property
+    def graph_hidden_size(self) -> int:
+        return self.__config.gnn.hidden_size
+
+    @property
+    def classifier_hidden_size(self) -> int:
+        return self.__config.classifier.hidden_size
+
     def forward(self, batch: Batch) -> torch.Tensor:
         """
 
@@ -73,6 +81,26 @@ class DeepWuKong(LightningModule):
         hiddens = self.__hidden_layers(graph_hid)
         # [n_XFG; n_classes]
         return self.__classifier(hiddens)
+
+    def forward_with_evidence(self, batch: Batch) -> Dict[str, torch.Tensor]:
+        """Expose MSAVD node/path evidence for downstream EP-LocNet.
+
+        The normal ``forward`` path is unchanged for vulnerability detection,
+        while this method additionally returns pre-pooling node embeddings and
+        attention-style node scores that can be mapped back to source lines.
+        """
+        evidence = self.__graph_encoder.forward_with_evidence(batch)
+        graph_hid = evidence["graph_embedding"]
+        hiddens = self.__hidden_layers(graph_hid)
+        logits = self.__classifier(hiddens)
+        vuln_prob = torch.softmax(logits, dim=-1)[:, 1]
+        evidence.update({
+            "logits": logits,
+            "path_embeddings": graph_hid,
+            "path_scores": vuln_prob,
+            "classifier_hiddens": hiddens,
+        })
+        return evidence
 
     def _get_optimizer(self, name: str) -> torch.nn.Module:
         if name in self._optimizers:

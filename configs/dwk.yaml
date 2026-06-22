@@ -66,3 +66,11 @@ hyper_parameters:
   learning_rate: 0.002
   weight_decay: 0
   decay_gamma: 0.95
+localization:
+  name: "EP-LocNet"
+  stmt_feature_size: 6
+  hidden_size: 256
+  candidate_top_ratio: 0.4
+  consistency_weight: 0.1
+  ranking_weight: 0.1
+  top_k: 5
